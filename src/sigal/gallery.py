@@ -358,8 +358,8 @@ class Video(Media):
         return self._get_file_date()
 
 
-class Album:
-    """Gather all informations on an album.
+class AlbumBase:
+    """Album properties and methods common to all types of album
 
     Attributes:
 
@@ -377,58 +377,23 @@ class Album:
 
     description_file = "index.md"
 
-    def __init__(self, path, settings, dirnames, filenames, gallery):
+    def __init__(self, path, settings, gallery):
+        # path represents a path in the gallery's album tree. It may
+        # or may not correspond to a source path. Once of the key
+        # specializations in derived classes is how they use this
+        # album path for input/output.
         self.path = path
         self.name = path.split(os.path.sep)[-1]
         self.gallery = gallery
         self.settings = settings
-        self.subdirs = dirnames
         self.output_file = settings["output_filename"]
         self._thumbnail = None
-
-        if path == ".":
-            self.src_path = settings["source"]
-            self.dst_path = settings["destination"]
-        else:
-            self.src_path = join(settings["source"], path)
-            self.dst_path = join(settings["destination"], path)
+        self.src_path = ""
+        self.dst_path = ""
+        self.url_ext = ""
+        self.index_url = ""
 
         self.logger = logging.getLogger(__name__)
-
-        # optionally add index.html to the URLs
-        self.url_ext = self.output_file if settings["index_in_url"] else ""
-
-        self.index_url = (
-            url_from_path(os.path.relpath(settings["destination"], self.dst_path))
-            + "/"
-            + self.url_ext
-        )
-
-        #: List of all medias in the album (:class:`~sigal.gallery.Image` and
-        #: :class:`~sigal.gallery.Video`).
-        self.medias = medias = []
-        self.medias_count = defaultdict(int)
-
-        for f in filenames:
-            ext = splitext(f)[1]
-            media = None
-            if ext.lower() in settings["img_extensions"]:
-                media = Image(f, self.path, settings)
-            elif ext.lower() in settings["video_extensions"]:
-                media = Video(f, self.path, settings)
-
-            # Allow modification of the media, including overriding the class
-            # type for the media.
-            result = signals.album_file.send(self, filename=f, media=media)
-            for recv, ret in result:
-                if ret is not None:
-                    media = ret
-
-            if media:
-                self.medias_count[media.type] += 1
-                medias.append(media)
-
-        signals.album_initialized.send(self)
 
     def __repr__(self):
         return f"<{self.__class__.__name__}>(path={self.path!r}, title={self.title!r})"
@@ -709,6 +674,59 @@ class Album:
         """Placeholder ZIP method.
         The ZIP logic is controlled by the zip_gallery plugin
         """
+
+
+class Album(AlbumBase):
+    """Represents a physical album associated with a source directory.
+
+    """
+
+    def __init__(self, path, settings, dirnames, filenames, gallery):
+        super().__init__(path, settings, gallery)
+
+        self.subdirs = dirnames
+
+        if path == ".":
+            self.src_path = settings["source"]
+            self.dst_path = settings["destination"]
+        else:
+            self.src_path = join(settings["source"], path)
+            self.dst_path = join(settings["destination"], path)
+
+        # optionally add index.html to the URLs
+        self.url_ext = self.output_file if settings["index_in_url"] else ""
+
+        self.index_url = (
+            url_from_path(os.path.relpath(settings["destination"], self.dst_path))
+            + "/"
+            + self.url_ext
+        )
+
+        #: List of all medias in the album (:class:`~sigal.gallery.Image` and
+        #: :class:`~sigal.gallery.Video`).
+        self.medias = medias = []
+        self.medias_count = defaultdict(int)
+
+        for f in filenames:
+            ext = splitext(f)[1]
+            media = None
+            if ext.lower() in settings["img_extensions"]:
+                media = Image(f, self.path, settings)
+            elif ext.lower() in settings["video_extensions"]:
+                media = Video(f, self.path, settings)
+
+            # Allow modification of the media, including overriding the class
+            # type for the media.
+            result = signals.album_file.send(self, filename=f, media=media)
+            for recv, ret in result:
+                if ret is not None:
+                    media = ret
+
+            if media:
+                self.medias_count[media.type] += 1
+                medias.append(media)
+
+        signals.album_initialized.send(self)
 
 
 class Gallery:
