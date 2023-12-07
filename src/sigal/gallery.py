@@ -99,6 +99,8 @@ class Media:
 
         self.logger = logging.getLogger(__name__)
 
+        self._valbums = {}
+
         signals.media_initialized.send(self)
 
     def __repr__(self):
@@ -229,6 +231,17 @@ class Media:
 
     def _get_file_date(self):
         return datetime.fromtimestamp(get_mod_date(self.src_path))
+
+    @property
+    def valbums(self):
+        """List of virtual albums containing this media."""
+        return self._valbums
+
+    def add_valbum(self, va_name, va_type):
+        if not va_name in self._valbums:
+            self._valbums[va_name] = va_type
+        else:
+            self.logger.warning("Media %r already assigned to %s", media, va_name)
 
 
 class Image(Media):
@@ -710,6 +723,7 @@ class Gallery:
             PILImage.MAX_IMAGE_PIXELS = settings["max_img_pixels"]
 
         # Build the list of directories with images
+        self.medias = []
         albums = self.albums = {}
         src_path = self.settings["source"]
 
@@ -764,6 +778,19 @@ class Gallery:
 
         if show_progress:
             print("\rCollecting albums, done.")
+
+        # At this point we have all media grouped into one or
+        # more albums. Iterate through the media in each album
+        # looking for additional valbum assignments.
+        for album in albums.values():
+            self.logger.debug("Checking media in %r", album)
+            for media in album:
+                self.logger.debug("%s", media)
+                for va_name, va_type in media.valbums.items():
+                    self.logger.debug("Assigned to valbum %s", va_name)
+
+        if show_progress:
+            print("\rCollecting valbums, done.")
 
         with progressbar(
             albums.values(),
