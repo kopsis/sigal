@@ -525,16 +525,14 @@ class Album:
     @property
     def images(self):
         """List of images (:class:`~sigal.gallery.Image`)."""
-        for m in self.medias:
-            media = self.gallery.media(m)
+        for media in self.medias:
             if media.type == "image":
                 yield media
 
     @property
     def videos(self):
         """List of videos (:class:`~sigal.gallery.Video`)."""
-        for m in self.medias:
-            media = self.gallery.media(m)
+        for media in self.medias:
             if media.type == "video":
                 yield media
 
@@ -575,8 +573,7 @@ class Album:
             return self._thumbnail
         else:
             # find and return the first landscape image
-            for m in self.medias:
-                f = self.gallery.media(m)
+            for f in self.medias:
                 ext = splitext(f.dst_filename)[1]
                 if ext.lower() not in self.settings["img_extensions"]:
                     continue
@@ -604,8 +601,7 @@ class Album:
 
             # else simply return the 1st media file
             if not self._thumbnail and self.medias:
-                for m in self.medias:
-                    media = self.gallery.media(m)
+                for media in self.medias:
                     if media.thumbnail is not None:
                         try:
                             self._thumbnail = (
@@ -645,8 +641,7 @@ class Album:
     @property
     def random_thumbnail(self):
         try:
-            m = random.choice(self.medias)
-            return url_from_path(join(self.name, self.gallery.media(m).thumbnail))
+            return url_from_path(join(self.name, random.choice(self.medias).thumbnail))
         except IndexError:
             return self.thumbnail
 
@@ -740,19 +735,21 @@ class Gallery:
             for d in dirs[:]:
                 path = join(relpath, d) if relpath != "." else d
                 if path not in albums.keys():
+                    self.logger.debug("Removing ignored subdir %s", d)
                     dirs.remove(d)
 
             # TODO:
             # Iterate files and create Media objects for each. Add them
             # to the Gallery media list and build a list of references
             # for this Album.
-            medias = {}
+            medias = []
             medias_count = defaultdict(int)
 
             for f in files:
                 ext = splitext(f)[1]
                 media = None
                 if ext.lower() in settings["img_extensions"]:
+                    self.logger.debug("Creating Image %s", f)
                     media = Image(f, relpath, settings)
                 elif ext.lower() in settings["video_extensions"]:
                     media = Video(f, relpath, settings)
@@ -772,27 +769,31 @@ class Gallery:
                         media = ret
 
                 if media:
+                    self.logger.debug("Adding media %s", f)
+
+                    # Add the medias to the Album's list
+                    medias.append(media)
                     medias_count[media.type] += 1
-                    medias[f] = media
+
+                    # Add the medias to the Gallery dict
+                    self.medias[f] = media
+                    self.medias_count[media.type] += 1
 
             # Create an Album for this path using the list of Media
             # references for the directory.
+            self.logger.debug("%d medias and %d dirs", len(medias), len(dirs))
             if not len(medias) and not len(dirs):
                 self.logger.info("Skip empty album: %s", relpath)
             else:
-                album = Album(relpath, settings, dirs, medias.keys(), medias_count, self)
-                if album.albums:
-                    album.create_output_directories()
-                    albums[relpath] = album
-                else:
-                    self.logger.info("Skip empty album: %r", album)
+                album = Album(relpath, settings, dirs, medias, medias_count, self)
+
+            if not album.medias and not album.albums:
+                self.logger.info("Skip empty album: %r", album)
+            else:
+                album.create_output_directories()
+                albums[relpath] = album
 
             # TODO: Handle the virtual album list in each media item.
-
-            # Add the medias to the Gallery
-            self.medias.update(medias)
-            for k, v in medias_count.items():
-                self.medias_count[k] += v
 
         if show_progress:
             print("\rCollecting albums, done.")
@@ -976,6 +977,13 @@ class Gallery:
             else:
                 self.stats[f.type] += 1
                 yield f
+
+    def media(self, key):
+        try:
+            return self.medias[key]
+        except KeyError:
+            self.logger.error("Media item %s not found", key)
+            return None
 
 
 def pool_init(max_img_pixels):
